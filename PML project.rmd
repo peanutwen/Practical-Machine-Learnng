@@ -1,0 +1,103 @@
+---
+title: "PML Project"
+date: "`r format(Sys.Date(), '%B %d,%Y')`"
+output: html_document
+---
+# 1. Overview
+
+This is the course project report for Coursera course "Practical Machine Learning". The purpose of this project is to build a model from the given training dataset to predict the performance of weight lifting activities.
+
+In the given training dataset (*pml-training.csv*), a variable "classe" (the last column) is used to indicate how well an activity was performed. A model will be built using other variables. The accuracy of the model will be tested using the given testing dataset (*pml-testing.csv*).
+
+The Weight Lifting Exercise (WLE) dataset is provided in the following publication : Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. **Qualitative Activity Recognition of Weight Lifting Exercises**. *Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13)*, Stuttgart, Germany: ACM SIGCHI, 2013.
+
+---
+# 2. Model Building
+
+## Data Cleaning
+
+Model training speed and efficiency largely depend on the number of predictors. Therefore, selecting appropriate predictor variables is an important step before actually starting the training. At the beginning of the project, without knowing the importance of each variable, some obviously unnecessary ones will be removed.
+
+As the very first step, the training dataset is loaded and its dimension is checked.
+
+```{r}
+training<-read.csv("pml-training.csv");dim(training)
+```
+
+By check the summary of the dataset (`summary(training)`), it can be seen that many columns are almost empty, which contain 19216 Na's. These columns will not help in the prediction, therefore needs to be moved. The following command removes the columns with more than 95% empty values. Note that 95% is just an arbitrary number. In this project, since all empty columns contain 19216 Na's, the number "19216" can be used as the threshold.
+
+```{r}
+train1<-training[,colSums(is.na(training))/nrow(training)<0.05];dim(train1)
+```
+
+Next, the columns with almost identical values need to be found and removed, since they will not be helpful in prediction neither. Function `nearZeroVar` is used to find the columns with small variances, which returns the indices of those columns. Note that `suppressMessages` command is only to hide the unnecessary package loading messages.
+
+```{r}
+suppressMessages(library(caret));nzv<-nearZeroVar(train1,saveMetrics=FALSE);train2<-train1[,-nzv];dim(train2)
+```
+
+The last step is to manually check if any other columns are obviously useless. Checked by `summary(train2)` command, the columns for the serial numbers (column 1: **X**), user names (column 2: **user_name**), and time stamps (column 3: **raw_timestamp_part_1**; column 4: **raw_timestamp_part_2**; column 5: **cvtd_timestamp**) can be considered useless in prediction.
+
+```{r}
+train3<-train2[,-c(1,2,3,4,5)];dim(train3)
+```
+
+It can be seen that the size of the training dataset has been dropped from 160 columns to 54 columns, which will dramatically  decrease the model training time. In the next section, the model will be trained using dataset *train3*.
+
+## Model Training
+
+It is currently unknown which variables are more important than others. So the following model training will use all of them as predictors to predict the output "classe". Two random forest methods with and without cross-validation will be compared.
+
+### Random Forest without Cross-Validation
+
+The training method used here is normal random forest (`method=rf`).
+
+```{r}
+modelFit<-train(classe~.,data=train3,method="rf",tuneGrid=data.frame(mtry=3),tuneLength=1)
+modelFit$finalModel
+```
+
+The out-of-sample error is 0.24% in this case.
+
+### Random Forest with Cross-Validation
+
+By using cross-validation, the out-of-sample error is expected to drop. The cross-validation method is "repeated cross validation"", with three folds and three repeats, for shorter training time. The cross-validation method is defined in `trainControl`.
+
+```{r}
+fitControl<-trainControl(method="repeatedcv",number=3,repeats=3)
+modelFitcv<-train(classe~.,data=train3,method="rf",tuneGrid=data.frame(mtry=3),tuneLength=1,trControl=fitControl)
+modelFitcv$finalModel
+```
+
+It is true that the out-of-sample error is now decreased slightly to 0.23%. The reason why the decrease is small is that the random forest method uses bootstrap samples from original data and leaves out about one third of the cases for internal cross-validation. Therefore, applying another external cross-validation will not add too much value. But, if the training method does not use internal cross-validation, the improvement is supposed to be significant.
+
+## Future Steps
+
+The number of the predictors can be further decreased. From the model, the importance of each variable can be calculated and sorted using command `carImp`. The higher the variable is in the table, the more important it is in prediction. By selecting some of the top variables, the out-of-sample error will increase a little, but the training time will decrease in return. It is possible to achieve a smaller model without sacrificing the accuracy to much.
+
+```{r}
+varImp(modelFit,scale=TRUE)
+```
+
+## 3. Testing
+
+The testing dataset is loaded. It can be seen that it contains only 20 rows.
+
+```{r}
+testing<-read.csv("pml-testing.csv");dim(testing)
+```
+
+But testing dataset has the variables that are removed. In order to use the model, it also needs some data cleaning to have the exactly same columns as "train3". To be consistent, the trimmed testing set is named "test3".
+
+```{r}
+test3<-testing[,which(names(testing)%in%colnames(train3))];dim(test3)
+```
+
+Then, the classes of the testing cases can be predicted.
+
+```{r}
+predClass<-predict(modelFitcv,test3)
+predClass
+```
+
+After submitting the predicted results to the course website, it is shown that the accuracy is 100%.
